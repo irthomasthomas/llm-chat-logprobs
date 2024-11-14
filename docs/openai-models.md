@@ -54,7 +54,7 @@ See [the OpenAI models documentation](https://platform.openai.com/docs/models) f
 
 The `gpt-3.5-turbo-instruct` model is a little different - it is a completion model rather than a chat model, described in [the OpenAI completions documentation](https://platform.openai.com/docs/api-reference/completions/create).
 
-Completion models can be called with the `-o logprobs 3` option (not supported by chat models) which will cause LLM to store 3 log probabilities for each returned token in the SQLite database. Consult [this issue](https://github.com/simonw/llm/issues/284#issuecomment-1724772704) for details on how to read these values.
+Completion models can be called with the `-o logprobs 3` option which will cause LLM to store 3 log probabilities for each returned token in the SQLite database. Consult [this issue](https://github.com/simonw/llm/issues/284#issuecomment-1724772704) for details on how to read these values.
 
 (openai-models-embedding)=
 

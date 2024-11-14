@@ -252,6 +252,15 @@ class SharedOptions(llm.Options):
         description="Integer seed to attempt to sample deterministically",
         default=None,
     )
+    logprobs: Optional[Union[bool, int]] = Field(
+        description="Include the log probabilities on a per-token basis",
+        default=None,
+    )
+    top_logprobs: Optional[int] = Field(
+        description="How many top log probabilities to return per token (1-5)",
+        default=None,
+        le=5,
+    )
 
     @field_validator("logit_bias")
     def validate_logit_bias(cls, logit_bias):
@@ -277,6 +286,21 @@ class SharedOptions(llm.Options):
                 raise ValueError("Invalid key-value pair in logit_bias dictionary")
 
         return validated_logit_bias
+
+    @field_validator("top_logprobs")
+    def validate_top_logprobs(cls, v, values):
+        if v is not None:
+            values["logprobs"] = True
+        return v
+
+    @field_validator("logprobs")
+    def validate_logprobs(cls, v):
+        if isinstance(v, int):
+            if 1 <= v <= 5:
+                return True
+            else:
+                raise ValueError("logprobs integer value must be between 1 and 5")
+        return v
 
 
 def _attachment(attachment):
@@ -417,6 +441,19 @@ class _Shared:
     def build_kwargs(self, prompt, stream):
         kwargs = dict(not_nulls(prompt.options))
         json_object = kwargs.pop("json_object", None)
+        
+        # Handle logprobs differently for chat vs completion
+        if "logprobs" in kwargs:
+            logprobs = kwargs["logprobs"]
+            if isinstance(self, Chat) and not isinstance(self, Completion):
+                # For chat models, convert int to bool
+                if isinstance(logprobs, int):
+                    kwargs["logprobs"] = True
+            else:
+                # For completion models, keep the int value
+                if isinstance(logprobs, bool):
+                    kwargs["logprobs"] = 5  # Default to 5 when true is passed
+        
         if "max_tokens" not in kwargs and self.default_max_tokens is not None:
             kwargs["max_tokens"] = self.default_max_tokens
         if json_object:
@@ -521,13 +558,6 @@ class AsyncChat(_Shared, AsyncModel):
 
 
 class Completion(Chat):
-    class Options(SharedOptions):
-        logprobs: Optional[int] = Field(
-            description="Include the log probabilities of most likely N per token",
-            default=None,
-            le=5,
-        )
-
     def __init__(self, *args, default_max_tokens=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.default_max_tokens = default_max_tokens
@@ -587,22 +617,23 @@ def combine_chunks(chunks: List) -> dict:
     content = ""
     role = None
     finish_reason = None
-    # If any of them have log probability, we're going to persist
-    # those later on
-    logprobs = []
+    logprobs = None
     usage = {}
 
     for item in chunks:
         if item.usage:
             usage = item.usage.dict()
         for choice in item.choices:
-            if choice.logprobs and hasattr(choice.logprobs, "top_logprobs"):
-                logprobs.append(
-                    {
+            if hasattr(choice, "logprobs") and choice.logprobs:
+                if hasattr(choice.logprobs, "content"):
+                    logprobs = {"content": choice.logprobs.content}
+                elif hasattr(choice.logprobs, "top_logprobs"):
+                    if logprobs is None:
+                        logprobs = []
+                    logprobs.append({
                         "text": choice.text if hasattr(choice, "text") else None,
                         "top_logprobs": choice.logprobs.top_logprobs,
-                    }
-                )
+                    })
 
             if not hasattr(choice, "delta"):
                 content += choice.text
@@ -613,15 +644,15 @@ def combine_chunks(chunks: List) -> dict:
             if choice.finish_reason is not None:
                 finish_reason = choice.finish_reason
 
-    # Imitations of the OpenAI API may be missing some of these fields
     combined = {
         "content": content,
         "role": role,
         "finish_reason": finish_reason,
         "usage": usage,
     }
-    if logprobs:
+    if logprobs is not None:
         combined["logprobs"] = logprobs
+
     for key in ("id", "object", "model", "created", "index"):
         value = getattr(chunks[0], key, None)
         if value is not None:

@@ -543,12 +543,15 @@ OpenAI Chat: gpt-4o (aliases: 4o)
       Pass a JSON string like '{"1712":-100, "892":-100, "1489":-100}'
     seed: int
       Integer seed to attempt to sample deterministically
+    logprobs: boolean, int
+      Include the log probabilities on a per-token basis
+    top_logprobs: int
+      How many top log probabilities to return per token (1-5)
     json_object: boolean
       Output a valid JSON object {...}. Prompt must mention JSON.
   Attachment types:
     image/gif, image/jpeg, image/png, image/webp
 """
-
 
 def test_llm_models_options(user_path):
     runner = CliRunner()
